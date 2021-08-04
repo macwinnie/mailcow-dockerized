@@ -6,6 +6,13 @@ if [ "$(id -u)" -ne "0" ]; then
   exit 1
 fi
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Run pre-update-hook
+if [ -f "${SCRIPT_DIR}/pre_update_hook.sh" ]; then
+  bash "${SCRIPT_DIR}/pre_update_hook.sh"
+fi
+
 if [[ "$(uname -r)" =~ ^4\.15\.0-60 ]]; then
   echo "DO NOT RUN mailcow ON THIS UBUNTU KERNEL!";
   echo "Please update to 5.x or use another distribution."
@@ -129,7 +136,8 @@ migrate_docker_nat() {
   DOCKERV_CUR=$(docker version -f '{{.Server.Version}}')
   if grep -qi "ipv6nat-mailcow" docker-compose.yml; then
     echo -e "\e[32mNative IPv6 implementation available.\e[0m"
-    echo "This will enable experimental features in the Docker daemon and configure Docker to do the IPv6 NATing instead of ipv6nat-mailcow. This step is recommended."
+    echo "This will enable experimental features in the Docker daemon and configure Docker to do the IPv6 NATing instead of ipv6nat-mailcow."
+    echo '!!! This step is recommended !!!'
     echo "mailcow will try to roll back the changes if starting Docker fails after modifying the daemon.json configuration file."
     read -r -p "Should we try to enable the native IPv6 implementation in Docker now (recommended)? [y/N] " dockernatresponse
     if [[ ! "${dockernatresponse}" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
@@ -280,9 +288,6 @@ CONFIG_ARRAY=(
   "DOVECOT_MASTER_USER"
   "DOVECOT_MASTER_PASS"
   "MAILCOW_PASS_SCHEME"
-  "XMPP_C2S_PORT"
-  "XMPP_S2S_PORT"
-  "XMPP_HTTPS_PORT"
   "ADDITIONAL_SERVER_NAMES"
   "ACME_CONTACT"
 )
@@ -472,14 +477,6 @@ for option in ${CONFIG_ARRAY[@]}; do
       echo '# see https://mailcow.github.io/mailcow-dockerized-docs/model-passwd/' >> mailcow.conf
       echo "MAILCOW_PASS_SCHEME=BLF-CRYPT" >> mailcow.conf
     fi
-  elif [[ ${option} == "XMPP_C2S_PORT" ]]; then
-    if ! grep -q ${option} mailcow.conf; then
-      echo "XMPP_C2S_PORT=5222" >> mailcow.conf
-    fi
-  elif [[ ${option} == "XMPP_S2S_PORT" ]]; then
-    if ! grep -q ${option} mailcow.conf; then
-      echo "XMPP_S2S_PORT=5269" >> mailcow.conf
-    fi
   elif [[ ${option} == "ADDITIONAL_SERVER_NAMES" ]]; then
     if ! grep -q ${option} mailcow.conf; then
       echo '# Additional server names for mailcow UI' >> mailcow.conf
@@ -490,10 +487,6 @@ for option in ${CONFIG_ARRAY[@]}; do
       echo '# You can understand this as server_name directive in Nginx.' >> mailcow.conf
       echo '# Comma separated list without spaces! Example: ADDITIONAL_SERVER_NAMES=a.b.c,d.e.f' >> mailcow.conf
       echo 'ADDITIONAL_SERVER_NAMES=' >> mailcow.conf
-    fi
-  elif [[ ${option} == "XMPP_HTTPS_PORT" ]]; then
-    if ! grep -q ${option} mailcow.conf; then
-      echo "XMPP_HTTPS_PORT=5443" >> mailcow.conf
     fi
   elif [[ ${option} == "ACME_CONTACT" ]]; then
     if ! grep -q ${option} mailcow.conf; then
@@ -542,6 +535,7 @@ if [ ! $FORCE ]; then
     echo "OK, exiting."
     exit 0
   fi
+  migrate_docker_nat
 fi
 
 echo -e "\e[32mValidating docker-compose stack configuration...\e[0m"
@@ -579,7 +573,7 @@ for container in "${MAILCOW_CONTAINERS[@]}"; do
   docker rm -f "$container" 2> /dev/null
 done
 
-[[ -f data/conf/nginx/ejabberd.conf ]] && mv data/conf/nginx/ejabberd.conf data/conf/nginx/ZZZ-ejabberd.conf
+[[ -f data/conf/nginx/ZZZ-ejabberd.conf ]] && rm data/conf/nginx/ZZZ-ejabberd.conf
 
 # Silently fixing remote url from andryyy to mailcow
 git remote set-url origin https://github.com/macwinnie/mailcow-dockerized
@@ -705,6 +699,11 @@ fi
 
 echo -e "\e[32mCollecting garbage...\e[0m"
 docker_garbage
+
+# Run post-update-hook
+if [ -f "${SCRIPT_DIR}/post_update_hook.sh" ]; then
+  bash "${SCRIPT_DIR}/post_update_hook.sh"
+fi
 
 #echo "In case you encounter any problem, hard-reset to a state before updating mailcow:"
 #echo
