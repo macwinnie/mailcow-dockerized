@@ -306,7 +306,6 @@ if (isset($_GET['query'])) {
             $_SESSION["mailcow_cc_role"] = "domainadmin";
           }
           $_SESSION["mailcow_cc_username"] = $process_fido2['username'];
-          $_SESSION['mailcow_cc_last_login'] = last_login($process_fido2['username']);
           $_SESSION["fido2_cid"] = $process_fido2['cid'];
           unset($_SESSION["challenge"]);
           $_SESSION['return'][] =  array(
@@ -640,6 +639,26 @@ if (isset($_GET['query'])) {
             }
           break;
 
+          case "last-login":
+            if ($object) {
+              if (isset($extra) && intval($extra) >= 1) {
+                $data = last_login('get', $object, intval($extra));
+              }
+              else {
+                $data = last_login('get', $object);
+              }
+              process_get_return($data);
+            }
+          break;
+
+          // Todo: move to delete
+          case "reset-last-login":
+            if ($object) {
+              $data = last_login('reset', $object);
+              process_get_return($data);
+            }
+          break;
+
           case "transport":
             switch ($object) {
               case "all":
@@ -797,6 +816,17 @@ if (isset($_GET['query'])) {
                 }
                 else {
                   $logs = get_logs('mailcow-ui');
+                }
+                echo (isset($logs) && !empty($logs)) ? json_encode($logs, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : '{}';
+              break;
+              case "sasl":
+                // 0 is first record, so empty is fine
+                if (isset($extra)) {
+                  $extra = preg_replace('/[^\d\-]/i', '', $extra);
+                  $logs = get_logs('sasl', $extra);
+                }
+                else {
+                  $logs = get_logs('sasl');
                 }
                 echo (isset($logs) && !empty($logs)) ? json_encode($logs, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : '{}';
               break;
@@ -1458,7 +1488,6 @@ if (isset($_GET['query'])) {
           process_delete_return(dkim('delete', array('domains' => $items)));
         break;
         case "domain":
-          file_put_contents('/tmp/dssaa', $items);
           process_delete_return(mailbox('delete', 'domain', array('domain' => $items)));
         break;
         case "alias-domain":
