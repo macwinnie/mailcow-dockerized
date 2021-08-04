@@ -251,21 +251,21 @@ function password_check($password1, $password2) {
 
   return true;
 }
-function last_login($action, $username, $sasl_limit = 10) {
+function last_login($action, $username, $sasl_limit_days = 7) {
   global $pdo;
 	global $redis;
-  $sasl_limit = intval($sasl_limit);
+  $sasl_limit_days = intval($sasl_limit_days);
   switch ($action) {
     case 'get':
       if (filter_var($username, FILTER_VALIDATE_EMAIL) && hasMailboxObjectAccess($_SESSION['mailcow_cc_username'], $_SESSION['mailcow_cc_role'], $username)) {
         $stmt = $pdo->prepare('SELECT `real_rip`, MAX(`datetime`) as `datetime`, `service`, `app_password` FROM `sasl_logs`
           LEFT OUTER JOIN `app_passwd` on `sasl_logs`.`app_password` = `app_passwd`.`id`
           WHERE `username` = :username
+            AND HOUR(TIMEDIFF(NOW(), `datetime`)) < :sasl_limit_days
             AND `success` = 1
               GROUP BY `real_rip`, `service`, `app_password`
-              ORDER BY `datetime` DESC
-              LIMIT :sasl_limit;');
-        $stmt->execute(array(':username' => $username, ':sasl_limit' => $sasl_limit));
+              ORDER BY `datetime` DESC;');
+        $stmt->execute(array(':username' => $username, ':sasl_limit_days' => ($sasl_limit_days * 24)));
         $sasl = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($sasl as $k => $v) {
           if (!filter_var($sasl[$k]['real_rip'], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
@@ -273,7 +273,7 @@ function last_login($action, $username, $sasl_limit = 10) {
           }
           elseif (filter_var($sasl[$k]['real_rip'], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
             try {
-              $sasl[$k]['location'] = $redis->hGet('IP_LOCATIONS', $sasl[$k]['real_rip']);
+              $sasl[$k]['location'] = $redis->hGet('IP_SHORTCOUNTRY', $sasl[$k]['real_rip']);
             }
             catch (RedisException $e) {
               $_SESSION['return'][] = array(
@@ -292,10 +292,10 @@ function last_login($action, $username, $sasl_limit = 10) {
               $ip_data = curl_exec($curl);
               if (!curl_errno($curl)) {
                 $ip_data_array = json_decode($ip_data, true);
-                if ($ip_data_array !== false and !empty($ip_data_array['location']['country'])) {
-                  $sasl[$k]['location'] = implode(', ', array_filter(array($ip_data_array['location']['country'], $ip_data_array['location']['city'])));
+                if ($ip_data_array !== false and !empty($ip_data_array['location']['shortcountry'])) {
+                  $sasl[$k]['location'] = $ip_data_array['location']['shortcountry'];
                     try {
-                      $redis->hSet('IP_LOCATIONS', $sasl[$k]['real_rip'], $sasl[$k]['location']);
+                      $redis->hSet('IP_SHORTCOUNTRY', $sasl[$k]['real_rip'], $ip_data_array['location']['shortcountry']);
                     }
                     catch (RedisException $e) {
                       $_SESSION['return'][] = array(
@@ -589,6 +589,7 @@ function hasMailboxObjectAccess($username, $role, $object) {
   }
 	return false;
 }
+// does also verify mailboxes as a mailbox is a alias == goto
 function hasAliasObjectAccess($username, $role, $object) {
 	global $pdo;
 	if (empty($username) || empty($role) || empty($object)) {
@@ -600,8 +601,7 @@ function hasAliasObjectAccess($username, $role, $object) {
 	if ($role != 'admin' && $role != 'domainadmin' && $role != 'user') {
 		return false;
 	}
-  // Do not verify mailboxes
-  $stmt = $pdo->prepare("SELECT `domain` FROM `alias` WHERE `address` = :object AND `address` != `goto`");
+  $stmt = $pdo->prepare("SELECT `domain` FROM `alias` WHERE `address` = :object");
   $stmt->execute(array(':object' => $object));
   $row = $stmt->fetch(PDO::FETCH_ASSOC);
   if (isset($row['domain']) && hasDomainAccess($username, $role, $row['domain'])) {
@@ -962,10 +962,6 @@ function edit_user_account($_data) {
     );
     return false;
   }
-	if (isset($_data['user_new_pass']) && isset($_data['user_new_pass2'])) {
-		$password_new	= $_data['user_new_pass'];
-		$password_new2	= $_data['user_new_pass2'];
-	}
 	$stmt = $pdo->prepare("SELECT `password` FROM `mailbox`
 			WHERE `kind` NOT REGEXP 'location|thing|group'
         AND `username` = :user");
@@ -979,41 +975,27 @@ function edit_user_account($_data) {
     );
     return false;
   }
-	if (isset($password_new) && isset($password_new2)) {
-		if (!empty($password_new2) && !empty($password_new)) {
-			if ($password_new2 != $password_new) {
-				$_SESSION['return'][] =  array(
-					'type' => 'danger',
-          'log' => array(__FUNCTION__, $_data_log),
-					'msg' => 'password_mismatch'
-				);
-				return false;
-			}
-			if (!preg_match('/' . $GLOBALS['PASSWD_REGEP'] . '/', $password_new)) {
-					$_SESSION['return'][] =  array(
-						'type' => 'danger',
-            'log' => array(__FUNCTION__, $_data_log),
-						'msg' => 'password_complexity'
-					);
-					return false;
-			}
-			$password_hashed = hash_password($password_new);
-			try {
-				$stmt = $pdo->prepare("UPDATE `mailbox` SET `password` = :password_hashed, `attributes` = JSON_SET(`attributes`, '$.force_pw_update', '0') WHERE `username` = :username");
-				$stmt->execute(array(
-					':password_hashed' => $password_hashed,
-					':username' => $username
-				));
-			}
-			catch (PDOException $e) {
-				$_SESSION['return'][] =  array(
-					'type' => 'danger',
-          'log' => array(__FUNCTION__, $_data_log),
-					'msg' => array('mysql_error', $e)
-				);
-				return false;
-			}
-		}
+	if (!empty($_data['user_new_pass']) && !empty($_data['user_new_pass2'])) {
+		$password_new	= $_data['user_new_pass'];
+		$password_new2	= $_data['user_new_pass2'];
+    if (password_check($password_new, $password_new2) !== true) {
+      return false;
+    }
+    // support pre hashed passwords
+    if (preg_match('/^{(ARGON2I|ARGON2ID|BLF-CRYPT|CLEAR|CLEARTEXT|CRYPT|DES-CRYPT|LDAP-MD5|MD5|MD5-CRYPT|PBKDF2|PLAIN|PLAIN-MD4|PLAIN-MD5|PLAIN-TRUNC|PLAIN-TRUNC|SHA|SHA1|SHA256|SHA256-CRYPT|SHA512|SHA512-CRYPT|SMD5|SSHA|SSHA256|SSHA512)}/i', $password)) {
+      $password_hashed = $password_new;
+    }
+    else {
+      $password_hashed = hash_password($password_new);
+    }
+    $stmt = $pdo->prepare("UPDATE `mailbox` SET `password` = :password_hashed,
+      `attributes` = JSON_SET(`attributes`, '$.force_pw_update', '0'),
+      `attributes` = JSON_SET(`attributes`, '$.passwd_update', NOW())
+        WHERE `username` = :username");
+    $stmt->execute(array(
+      ':password_hashed' => $password_hashed,
+      ':username' => $username
+    ));
 	}
   update_sogo_static_view();
 	$_SESSION['return'][] =  array(
@@ -1115,8 +1097,7 @@ function set_tfa($_data) {
   $_data_log = $_data;
   !isset($_data_log['confirm_password']) ?: $_data_log['confirm_password'] = '*';
   $username = $_SESSION['mailcow_cc_username'];
-  if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-    $_SESSION['mailcow_cc_role'] != "admin") {
+  if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
       $_SESSION['return'][] =  array(
         'type' => 'danger',
         'log' => array(__FUNCTION__, $_data_log),
@@ -1125,18 +1106,35 @@ function set_tfa($_data) {
       return false;
   }
   $stmt = $pdo->prepare("SELECT `password` FROM `admin`
-      WHERE `username` = :user");
-  $stmt->execute(array(':user' => $username));
+      WHERE `username` = :username");
+  $stmt->execute(array(':username' => $username));
   $row = $stmt->fetch(PDO::FETCH_ASSOC);
-  if (!verify_hash($row['password'], $_data["confirm_password"])) {
-    $_SESSION['return'][] =  array(
-      'type' => 'danger',
-      'log' => array(__FUNCTION__, $_data_log),
-      'msg' => 'access_denied'
-    );
-    return false;
+  $num_results = count($stmt->fetchAll(PDO::FETCH_ASSOC));
+  if (!empty($num_results)) {
+    if (!verify_hash($row['password'], $_data["confirm_password"])) {
+      $_SESSION['return'][] =  array(
+        'type' => 'danger',
+        'log' => array(__FUNCTION__, $_data_log),
+        'msg' => 'access_denied'
+      );
+      return false;
+    }
   }
-
+  $stmt = $pdo->prepare("SELECT `password` FROM `mailbox`
+      WHERE `username` = :username");
+  $stmt->execute(array(':username' => $username));
+  $row = $stmt->fetch(PDO::FETCH_ASSOC);
+  $num_results = count($stmt->fetchAll(PDO::FETCH_ASSOC));
+  if (!empty($num_results)) {
+    if (!verify_hash($row['password'], $_data["confirm_password"])) {
+      $_SESSION['return'][] =  array(
+        'type' => 'danger',
+        'log' => array(__FUNCTION__, $_data_log),
+        'msg' => 'access_denied'
+      );
+      return false;
+    }
+  }
 	switch ($_data["tfa_method"]) {
 		case "yubi_otp":
       $key_id = (!isset($_data["key_id"])) ? 'unidentified' : $_data["key_id"];
@@ -1259,8 +1257,7 @@ function fido2($_data) {
 	switch ($_data["action"]) {
 		case "register":
       $username = $_SESSION['mailcow_cc_username'];
-      if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-        $_SESSION['mailcow_cc_role'] != "admin") {
+      if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
           $_SESSION['return'][] =  array(
             'type' => 'danger',
             'log' => array(__FUNCTION__, $_data["action"]),
@@ -1291,9 +1288,8 @@ function fido2($_data) {
 		case "get_user_cids":
       // Used to exclude existing CredentialIds while registering
       $username = $_SESSION['mailcow_cc_username'];
-      if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-        $_SESSION['mailcow_cc_role'] != "admin") {
-          return false;
+      if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
+        return false;
       }
       $stmt = $pdo->prepare("SELECT `credentialId` FROM `fido2` WHERE `username` = :username");
       $stmt->execute(array(':username' => $username));
@@ -1330,9 +1326,8 @@ function fido2($_data) {
 		break;
 		case "get_friendly_names":
       $username = $_SESSION['mailcow_cc_username'];
-      if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-        $_SESSION['mailcow_cc_role'] != "admin") {
-          return false;
+      if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
+        return false;
       }
       $stmt = $pdo->prepare("SELECT SHA2(`credentialId`, 256) AS `cid`, `created`, `certificateSubject`, `friendlyName` FROM `fido2` WHERE `username` = :username");
       $stmt->execute(array(':username' => $username));
@@ -1348,14 +1343,13 @@ function fido2($_data) {
 		break;
 		case "unset_fido2_key":
       $username = $_SESSION['mailcow_cc_username'];
-      if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-        $_SESSION['mailcow_cc_role'] != "admin") {
-          $_SESSION['return'][] =  array(
-            'type' => 'danger',
-            'log' => array(__FUNCTION__, $_data["action"]),
-            'msg' => 'access_denied'
-          );
-          return false;
+      if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
+        $_SESSION['return'][] =  array(
+          'type' => 'danger',
+          'log' => array(__FUNCTION__, $_data["action"]),
+          'msg' => 'access_denied'
+        );
+        return false;
       }
       $stmt = $pdo->prepare("DELETE FROM `fido2` WHERE `username` = :username AND SHA2(`credentialId`, 256) = :cid");
       $stmt->execute(array(
@@ -1370,14 +1364,13 @@ function fido2($_data) {
 		break;
     case "edit_fn":
       $username = $_SESSION['mailcow_cc_username'];
-      if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-        $_SESSION['mailcow_cc_role'] != "admin") {
-          $_SESSION['return'][] =  array(
-            'type' => 'danger',
-            'log' => array(__FUNCTION__, $_data["action"]),
-            'msg' => 'access_denied'
-          );
-          return false;
+      if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
+        $_SESSION['return'][] =  array(
+          'type' => 'danger',
+          'log' => array(__FUNCTION__, $_data["action"]),
+          'msg' => 'access_denied'
+        );
+        return false;
       }
       $stmt = $pdo->prepare("UPDATE `fido2` SET `friendlyName` = :friendlyName WHERE SHA2(`credentialId`, 256) = :cid AND `username` = :username");
       $stmt->execute(array(
@@ -1401,14 +1394,13 @@ function unset_tfa_key($_data) {
   $_data_log = $_data;
   $id = intval($_data['unset_tfa_key']);
   $username = $_SESSION['mailcow_cc_username'];
-  if ($_SESSION['mailcow_cc_role'] != "domainadmin" &&
-    $_SESSION['mailcow_cc_role'] != "admin") {
-      $_SESSION['return'][] =  array(
-        'type' => 'danger',
-        'log' => array(__FUNCTION__, $_data_log),
-        'msg' => 'access_denied'
-      );
-      return false;
+  if (!isset($_SESSION['mailcow_cc_role']) || empty($username)) {
+    $_SESSION['return'][] =  array(
+      'type' => 'danger',
+      'log' => array(__FUNCTION__, $_data_log),
+      'msg' => 'access_denied'
+    );
+    return false;
   }
   try {
     if (!is_numeric($id)) {
