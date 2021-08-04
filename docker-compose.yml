@@ -287,7 +287,8 @@ services:
             - dovecot
 
     postfix-mailcow:
-      image: mailcow/postfix:1.65
+      # image: mailcow/postfix:1.65
+      image: macwinnie/mailcow-postfix:latest
       depends_on:
         - mysql-mailcow
       volumes:
