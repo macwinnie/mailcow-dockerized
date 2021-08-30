@@ -41,7 +41,7 @@ services:
             - mysql
 
     redis-mailcow:
-      image: redis:5-alpine
+      image: redis:6-alpine
       volumes:
         - redis-vol-1:/data/:Z
       restart: always
@@ -101,7 +101,7 @@ services:
             - rspamd
 
     php-fpm-mailcow:
-      image: mailcow/phpfpm:1.75
+      image: mailcow/phpfpm:1.76
       command: "php-fpm -d date.timezone=${TZ} -d expose_php=0"
       depends_on:
         - redis-mailcow
@@ -208,7 +208,7 @@ services:
             - sogo
 
     dovecot-mailcow:
-      image: mailcow/dovecot:1.154
+      image: mailcow/dovecot:1.155
       depends_on:
         - mysql-mailcow
       dns:
@@ -240,7 +240,7 @@ services:
         - MAILCOW_PASS_SCHEME=${MAILCOW_PASS_SCHEME:-BLF-CRYPT}
         - IPV4_NETWORK=${IPV4_NETWORK:-172.22.1}
         - ALLOW_ADMIN_EMAIL_LOGIN=${ALLOW_ADMIN_EMAIL_LOGIN:-n}
-        - MAILDIR_GC_TIME=${MAILDIR_GC_TIME:-1440}
+        - MAILDIR_GC_TIME=${MAILDIR_GC_TIME:-7200}
         - ACL_ANYONE=${ACL_ANYONE:-disallow}
         - SKIP_SOLR=${SKIP_SOLR:-y}
         - MAILDIR_SUB=${MAILDIR_SUB:-}
