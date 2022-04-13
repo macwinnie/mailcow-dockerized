@@ -492,7 +492,7 @@ for option in ${CONFIG_ARRAY[@]}; do
       echo "Adding new option \"${option}\" to mailcow.conf"
       echo '# Password hash algorithm' >> mailcow.conf
       echo '# Only certain password hash algorithm are supported. For a fully list of supported schemes,' >> mailcow.conf
-      echo '# see https://mailcow.github.io/mailcow-dockerized-docs/model-passwd/' >> mailcow.conf
+      echo '# see https://mailcow.github.io/mailcow-dockerized-docs/models/model-passwd/' >> mailcow.conf
       echo "MAILCOW_PASS_SCHEME=BLF-CRYPT" >> mailcow.conf
     fi
   elif [[ ${option} == "ADDITIONAL_SERVER_NAMES" ]]; then
@@ -512,7 +512,7 @@ for option in ${CONFIG_ARRAY[@]}; do
       echo '# Optional: Leave empty for none' >> mailcow.conf
       echo '# This value is only used on first order!' >> mailcow.conf
       echo '# Setting it at a later point will require the following steps:' >> mailcow.conf
-      echo '# https://mailcow.github.io/mailcow-dockerized-docs/debug-reset-tls/' >> mailcow.conf
+      echo '# https://mailcow.github.io/mailcow-dockerized-docs/troubleshooting/debug-reset_tls/' >> mailcow.conf
       echo 'ACME_CONTACT=' >> mailcow.conf
   fi
   elif [[ ${option} == "WEBAUTHN_ONLY_TRUSTED_VENDORS" ]]; then
@@ -722,10 +722,9 @@ fi
 # Set app_info.inc.php
 mailcow_git_version=$(git describe --tags `git rev-list --tags --max-count=1`)
 if [ $? -eq 0 ]; then
-  mailcow_git_url=$(git config --get remote.origin.url)
   echo '<?php' > data/web/inc/app_info.inc.php
   echo '  $MAILCOW_GIT_VERSION="'$mailcow_git_version'";' >> data/web/inc/app_info.inc.php
-  echo '  $MAILCOW_GIT_URL="'$mailcow_git_url'";' >> data/web/inc/app_info.inc.php
+  echo '  $MAILCOW_GIT_URL="https://github.com/mailcow/mailcow-dockerized";' >> data/web/inc/app_info.inc.php
   echo '?>' >> data/web/inc/app_info.inc.php
 else
   echo '<?php' > data/web/inc/app_info.inc.php

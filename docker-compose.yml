@@ -56,7 +56,7 @@ services:
             - redis
 
     clamd-mailcow:
-      image: mailcow/clamd:1.43
+      image: mailcow/clamd:1.50
       restart: always
       dns:
         - ${IPV4_NETWORK:-172.22.1}.254
@@ -65,13 +65,14 @@ services:
         - SKIP_CLAMD=${SKIP_CLAMD:-n}
       volumes:
         - ./data/conf/clamav/:/etc/clamav/:Z
+        - clamd-db-vol-1:/var/lib/clamav:z
       networks:
         mailcow-network:
           aliases:
             - clamd
 
     rspamd-mailcow:
-      image: mailcow/rspamd:1.79
+      image: mailcow/rspamd:1.90
       stop_grace_period: 30s
       depends_on:
         - dovecot-mailcow
@@ -163,7 +164,7 @@ services:
             - phpfpm
 
     sogo-mailcow:
-      image: mailcow/sogo:1.106
+      image: mailcow/sogo:1.107
       environment:
         - DBNAME=${DBNAME}
         - DBUSER=${DBUSER}
@@ -210,7 +211,7 @@ services:
             - sogo
 
     dovecot-mailcow:
-      image: mailcow/dovecot:1.159
+      image: mailcow/dovecot:1.161
       depends_on:
         - mysql-mailcow
       dns:
@@ -251,6 +252,7 @@ services:
         - REDIS_SLAVEOF_PORT=${REDIS_SLAVEOF_PORT:-}
         - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-mailcow-dockerized}
       ports:
+        - "${DOVEADM_PORT:-127.0.0.1:19991}:12345"
         - "${IMAP_PORT:-143}:143"
         - "${IMAPS_PORT:-993}:993"
         - "${POP_PORT:-110}:110"
@@ -432,7 +434,7 @@ services:
         - DBPASS=${DBPASS}
         - DBROOT=${DBROOT}
         - USE_WATCHDOG=${USE_WATCHDOG:-n}
-        - WATCHDOG_NOTIFY_EMAIL=${WATCHDOG_NOTIFY_EMAIL}
+        - WATCHDOG_NOTIFY_EMAIL=${WATCHDOG_NOTIFY_EMAIL:-}
         - WATCHDOG_NOTIFY_BAN=${WATCHDOG_NOTIFY_BAN:-y}
         - WATCHDOG_SUBJECT=${WATCHDOG_SUBJECT:-Watchdog ALERT}
         - WATCHDOG_EXTERNAL_CHECKS=${WATCHDOG_EXTERNAL_CHECKS:-n}
@@ -496,6 +498,8 @@ services:
       restart: always
       volumes:
         - solr-vol-1:/opt/solr/server/solr/dovecot-fts/data:Z
+      ports:
+        - "${SOLR_PORT:-127.0.0.1:18983}:8983"
       environment:
         - TZ=${TZ}
         - SOLR_HEAP=${SOLR_HEAP:-1024}
@@ -506,7 +510,7 @@ services:
             - solr
 
     olefy-mailcow:
-      image: mailcow/olefy:1.8.1
+      image: mailcow/olefy:1.9
       restart: always
       environment:
         - TZ=${TZ}
@@ -514,7 +518,7 @@ services:
         - OLEFY_BINDPORT=10055
         - OLEFY_TMPDIR=/tmp
         - OLEFY_PYTHON_PATH=/usr/bin/python3
-        - OLEFY_OLEVBA_PATH=/usr/bin/olevba3
+        - OLEFY_OLEVBA_PATH=/usr/bin/olevba
         - OLEFY_LOGLVL=20
         - OLEFY_MINLENGTH=500
         - OLEFY_DEL_TMP=1
@@ -611,3 +615,5 @@ volumes:
     name: "mailcow_sogo"
   sogo-userdata-backup-vol-1:
     name: "mailcow_sogo-userdata-backup"
+  clamd-db-vol-1:
+    name: "mailcow_clamd-db"
