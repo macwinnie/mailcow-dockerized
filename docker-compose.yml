@@ -3,7 +3,7 @@ version: '3'
 services:
 
     unbound-mailcow:
-      image: mailcow/unbound:1.16
+      image: mailcow/unbound:1.17
       environment:
         - TZ=${TZ}
       volumes:
@@ -41,7 +41,7 @@ services:
             - mysql
 
     redis-mailcow:
-      image: redis:6-alpine
+      image: redis:7-alpine
       volumes:
         - redis-vol-1:/data/
       restart: always
@@ -56,7 +56,7 @@ services:
             - redis
 
     clamd-mailcow:
-      image: mailcow/clamd:1.54
+      image: mailcow/clamd:1.60
       restart: always
       depends_on:
         - unbound-mailcow
@@ -74,7 +74,7 @@ services:
             - clamd
 
     rspamd-mailcow:
-      image: mailcow/rspamd:1.90
+      image: mailcow/rspamd:1.92
       stop_grace_period: 30s
       depends_on:
         - dovecot-mailcow
@@ -104,7 +104,7 @@ services:
             - rspamd
 
     php-fpm-mailcow:
-      image: mailcow/phpfpm:1.79
+      image: mailcow/phpfpm:1.82
       command: "php-fpm -d date.timezone=${TZ} -d expose_php=0"
       depends_on:
         - redis-mailcow
@@ -158,6 +158,7 @@ services:
         - ALLOW_ADMIN_EMAIL_LOGIN=${ALLOW_ADMIN_EMAIL_LOGIN:-n}
         - MASTER=${MASTER:-y}
         - DEV_MODE=${DEV_MODE:-n}
+        - DEMO_MODE=${DEMO_MODE:-n}
         - WEBAUTHN_ONLY_TRUSTED_VENDORS=${WEBAUTHN_ONLY_TRUSTED_VENDORS:-n}
       restart: always
       networks:
@@ -166,7 +167,7 @@ services:
             - phpfpm
 
     sogo-mailcow:
-      image: mailcow/sogo:1.111
+      image: mailcow/sogo:1.114
       environment:
         - DBNAME=${DBNAME}
         - DBUSER=${DBUSER}
@@ -213,7 +214,7 @@ services:
             - sogo
 
     dovecot-mailcow:
-      image: mailcow/dovecot:1.20
+      image: mailcow/dovecot:1.22
       depends_on:
         - mysql-mailcow
       dns:
@@ -393,7 +394,7 @@ services:
             - nginx
 
     netfilter-mailcow:
-      image: mailcow/netfilter:1.48
+      image: mailcow/netfilter:1.50
       stop_grace_period: 30s
       depends_on:
         - dovecot-mailcow
@@ -416,7 +417,7 @@ services:
         - /lib/modules:/lib/modules:ro
 
     watchdog-mailcow:
-      image: mailcow/watchdog:1.96
+      image: mailcow/watchdog:1.97
       dns:
         - ${IPV4_NETWORK:-172.22.1}.254
       tmpfs:
@@ -478,16 +479,17 @@ services:
             - watchdog
 
     dockerapi-mailcow:
-      image: mailcow/dockerapi:1.42
+      image: mailcow/dockerapi:2.0
       security_opt:
         - label=disable
       restart: always
-      oom_kill_disable: true
       dns:
         - ${IPV4_NETWORK:-172.22.1}.254
       environment:
         - DBROOT=${DBROOT}
         - TZ=${TZ}
+        - REDIS_SLAVEOF_IP=${REDIS_SLAVEOF_IP:-}
+        - REDIS_SLAVEOF_PORT=${REDIS_SLAVEOF_PORT:-}
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock:ro
       networks:
@@ -512,7 +514,7 @@ services:
             - solr
 
     olefy-mailcow:
-      image: mailcow/olefy:1.10
+      image: mailcow/olefy:1.11
       restart: always
       environment:
         - TZ=${TZ}
